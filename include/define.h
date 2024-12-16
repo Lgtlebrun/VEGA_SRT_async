@@ -20,5 +20,11 @@
 #define HOME_AZ 0
 #define HOME_EL 89
 
+#define OBS_LAT 46.5194444
+#define OBS_LON 6.565
+#define OBS_HEIGHT 411.0
+
+#define J2000 2451545.0 // Julian date for the J2000 epoch
+
 extern inline double start_time = 0; // In seconds
 #endif

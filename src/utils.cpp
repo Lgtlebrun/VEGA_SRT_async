@@ -1,9 +1,6 @@
 #include "utils.h"
 
-extern
-
-    std::vector<String>
-    splitString(const String &str, char delimiter)
+extern std::vector<String> splitString(const String &str, char delimiter)
 {
     // Function to split a string by a delimiter
 
@@ -33,8 +30,8 @@ bool isFloat(const String &str)
 double getCurrentTime()
 {
     using namespace std::chrono;
-    auto now = system_clock::now();
-    auto duration = now.time_since_epoch();
+    auto timestamp = system_clock::now();
+    auto duration = timestamp.time_since_epoch();
     auto microseconds_duration = duration_cast<microseconds>(duration).count();
     return (static_cast<double>(microseconds_duration)) / 1.e6f + start_time;
 }
@@ -45,55 +42,133 @@ String getCurrentTimestamp()
     return String(time_in_seconds, 6U); // Precision to the microsecond
 }
 
-// Calculate Greenwich Mean Sidereal Time
-float calculateGMST(time_t now)
+// Convert Unix timestamp to Julian date
+double unixTimeToJD(double const &unixTime)
 {
-    std::tm *utc = std::gmtime(&now);
-    int dayOfYear = utc->tm_yday + 1; // Day of the year
-    float hours = utc->tm_hour + utc->tm_min / 60.0f + utc->tm_sec / 3600.0f;
-
-    // Days since J2000.0
-    float d = dayOfYear + (hours / 24.0f);
-    float T = (d + (utc->tm_year - 100) * 365.25f - 0.5f) / 36525.0f;
-
-    // GMST in degrees
-    float GMST = 280.46061837f + 360.98564736629f * d + 0.000387933f * T * T - T * T * T / 38710000.0f;
-    return fmod(GMST, 360.0f); // Normalize
+    return unixTime / SECONDS_IN_DAY + UNIX_EPOCH_JD;
 }
 
-// Convert equatorial coordinates to horizontal coordinates
-std::tuple<float, float> Equatorial2AzAlt(float const &ra, float const &dec)
+// Compute Greenwich Mean Sidereal Time
+double computeGMST(double const &jd)
 {
-    double now = getCurrentTime();
-    float az, el;
-    // Observer's coordinates
-    float observerLat = 45.0f;  // Example: Latitude in degrees
-    float observerLon = -93.0f; // Example: Longitude in degrees
+    // Split JD into UT1 components using the Date & Time method
+    double uta = floor(jd); // Integer part
+    double utb = jd - uta;  // Fractional day part
 
-    // Calculate Local Sidereal Time (LST)
-    float GMST = calculateGMST(now);
-    float LST = fmod(GMST + observerLon, 360.0f);
+    // NB : If this slows down, just use TT = UT for simplicity
+    double tta, ttb, tai1, tai2;
+    iauUtctai(uta, utb, &tai1, &tai2);
+    iauTaitt(tai1, tai2, &tta, &ttb);
 
-    // Calculate Hour Angle
-    float HA = fmod(LST - ra, 360.0f);
+    // Call SOFA function to compute GMST in radians
+    double gmst_rad = iauGmst00(uta, utb, tta, ttb);
 
-    // Convert to radians
-    float HA_rad = HA * DEG_TO_RAD;
-    float Dec_rad = dec * DEG_TO_RAD;
-    float Lat_rad = observerLat * DEG_TO_RAD;
+    // Convert GMST from radians to hours
+    double gmst_hours = gmst_rad * 12.0 / M_PI;
 
-    // Calculate elevation
-    float sin_el = sin(Dec_rad) * sin(Lat_rad) + cos(Dec_rad) * cos(Lat_rad) * cos(HA_rad);
-    el = asin(sin_el) * RAD_TO_DEG;
+    // Ensure GMST is in the range [0, 24) hours
+    if (gmst_hours < 0)
+    {
+        gmst_hours += 24.0;
+    }
+    return gmst_hours;
+}
+/*
+{
+    double d = jd - J2000;
+    double gmst = 18.697375 + 24.065709824279 * d;
+    gmst = fmod(gmst, 24.0);
+    return (gmst < 0) ? gmst + 24.0 : gmst;
+}*/
 
-    // Calculate azimuth
-    float cos_az = (sin(Dec_rad) - sin(el * DEG_TO_RAD) * sin(Lat_rad)) /
-                   (cos(el * DEG_TO_RAD) * cos(Lat_rad));
-    az = acos(cos_az) * RAD_TO_DEG;
+// Nutation and Equation of Equinoxes
+double computeEquationOfEquinoxes(double const &d)
+{
+    double omega = 125.04 - 0.052954 * d;
+    double L = 280.47 + 0.98565 * d;
+    double epsilon = 23.4393 - 0.0000004 * d;
 
-    // Adjust azimuth based on quadrant
-    if (sin(HA_rad) > 0)
-        az = 360.0f - az;
+    double deltaPsi = -0.000319 * sin(omega * DEG_TO_RAD) - 0.000024 * sin(2 * L * DEG_TO_RAD);
+    return deltaPsi * cos(epsilon * DEG_TO_RAD);
+}
 
-    return std::make_tuple(az, el);
+// Convert RA/DEC to Alt/Az
+std::tuple<double, double> raDecToAltAz(double ra, double dec, double unixTime)
+{
+    if (unixTime + 1 < 1e6f)
+    {
+        unixTime = getCurrentTime();
+    }
+    double jd = unixTimeToJD(unixTime);
+    double d = jd - J2000;
+
+    double gmst = computeGMST(jd);
+    double eqeq = computeEquationOfEquinoxes(d);
+    double gast = gmst + eqeq;
+
+    double lst = gast + OBS_LON / 15.0;
+    lst = fmod(lst, 24.0);
+    if (lst < 0)
+        lst += 24.0;
+
+    double hourAngle = (lst * 15.0 - ra);
+    hourAngle *= DEG_TO_RAD;
+
+    double lat;
+
+    lat = OBS_LAT * DEG_TO_RAD;
+    dec *= DEG_TO_RAD;
+
+    double sh, ch, sd, cd, sp, cp, x, y, z, r, a;
+
+    // Starting from here : taken from SOFA hd2ae.c
+    /* Useful trig functions. */
+    sh = sin(hourAngle);
+    ch = cos(hourAngle);
+    sd = sin(dec);
+    cd = cos(dec);
+    sp = sin(lat);
+    cp = cos(lat);
+
+    /* Az,Alt unit vector. */
+    x = -ch * cd * sp + sd * cp;
+    y = -sh * cd;
+    z = ch * cd * cp + sd * sp;
+
+    /* To spherical. */
+    r = sqrt(x * x + y * y);
+    a = (r != 0.0) ? atan2(y, x) : 0.0;
+    double az = (a < 0.0) ? a + 2 * M_PI : a;
+    double alt = atan2(z, r);
+
+    return std::make_tuple(az * RAD_TO_DEG, alt * RAD_TO_DEG);
+}
+
+// Convert Galactic to Equatorial (RA, Dec)
+std::tuple<double, double> galacticToEquatorial(double l, double b)
+{
+    l *= DEG_TO_RAD;
+    b *= DEG_TO_RAD;
+
+    double sinDec = sin(b) * sin(GALACTIC_NGP_DEC * DEG_TO_RAD) +
+                    cos(b) * cos(GALACTIC_NGP_DEC * DEG_TO_RAD) * cos(l - GALACTIC_NORTH_LON * DEG_TO_RAD);
+    double dec = asin(sinDec);
+
+    double y = cos(b) * sin(l - GALACTIC_NORTH_LON * DEG_TO_RAD);
+    double x = cos(b) * cos(l - GALACTIC_NORTH_LON * DEG_TO_RAD) * sin(GALACTIC_NGP_DEC * DEG_TO_RAD) -
+               sin(b) * cos(GALACTIC_NGP_DEC * DEG_TO_RAD);
+
+    double ra = atan2(y, x) + GALACTIC_NGP_RA * DEG_TO_RAD;
+
+    ra = fmod(ra, 2 * M_PI);
+    if (ra < 0)
+        ra += 2 * M_PI;
+
+    return std::make_tuple(ra * RAD_TO_DEG, dec * RAD_TO_DEG);
+}
+
+std::tuple<double, double> galacticToAltAz(double l, double b, double unixTime)
+{
+    auto [ra, dec] = galacticToEquatorial(l, b);
+    return raDecToAltAz(ra, dec, unixTime);
 }

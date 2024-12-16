@@ -93,11 +93,11 @@ void Tracker::updateTargetCoordinates()
         break;
 
     case TRACK_GALACTIC:
-        updateFromGalactic(az, el);
+        std::tie(az, el) = galacticToAltAz(l, b);
         break;
 
     case TRACK_EQUATORIAL:
-        std::tie(az, el) = Equatorial2AzAlt(ra, dec);
+        std::tie(az, el) = raDecToAltAz(ra, dec);
         break;
 
     default:

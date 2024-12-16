@@ -121,9 +121,23 @@ void receiveTask(void *parameter)
                     {
                         if (tokens.size() != 4)
                         {
-                            print_acknowledgement_error("Error : track gal needs two arguments : ra and dec");
+                            print_acknowledgement_error("Error : track gal needs two arguments : l and b");
                             continue;
                         }
+                        String l_str = tokens[2];
+                        String b_str = tokens[3];
+
+                        if (!isFloat(l_str) || !isFloat(b_str))
+                        {
+                            print_acknowledgement_error("Error: Invalid parameters for track gal. Both must be numbers. Received l = " + l_str + ", b = " + b_str);
+                            continue; // Skip to the next iteration
+                        }
+
+                        float l = l_str.toFloat();
+                        float b = b_str.toFloat();
+
+                        tracker.setGalactic(l, b);
+                        tracker.start(TRACK_GALACTIC);
                         // TODO change completely receiving framework to JSON, in order to get tle correctly
                     }
                     else if (trackType.equals("tle"))
@@ -174,6 +188,33 @@ void receiveTask(void *parameter)
                 {
                     print_acknowledgement(cmd_name);
                     print_timestamp();
+                }
+                // For debugging; remove if not needed
+                else if (cmd_name.equals("ra2azalt"))
+                {
+                    if (tokens.size() < 3)
+                    {
+                        print_acknowledgement_error("Error: ra2azalt command requires 2 parameters (ra, dec).");
+                        continue; // Skip to the next iteration
+                    }
+
+                    String ra_str = tokens[1];
+                    String dec_str = tokens[2];
+
+                    if (!isFloat(ra_str) || !isFloat(dec_str))
+                    {
+                        print_acknowledgement_error("Error: Invalid parameters for ra2azalt. Both must be numbers. Received az = " + ra_str + ", el = " + dec_str);
+                        continue; // Skip to the next iteration
+                    }
+
+                    float ra = ra_str.toFloat();
+                    float dec = dec_str.toFloat();
+
+                    float az, alt;
+                    std::tie(az, alt) = raDecToAltAz(ra, dec);
+                    ra_str = String(az, 2U);
+                    dec_str = String(alt, 2U);
+                    print_acknowledgement("Az: " + ra_str + ", el: " + dec_str);
                 }
                 else if (cmd_name.equals("sync_time"))
                 {
