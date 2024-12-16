@@ -84,7 +84,7 @@ void Tracker::updateTargetCoordinates()
         return; // No need to update in IDLE mode
     }
 
-    float az, el;
+    double az, el;
 
     switch (currentMode)
     {
@@ -149,7 +149,7 @@ void Tracker::task()
             print_info("DEBUG : Notification sent.");
             vTaskDelete(NULL); // Delete this task
         }
-        float az, el;
+        double az, el;
         xSemaphoreTake(positionMutex, portMAX_DELAY);
         // TODO get current position
         az = 50;
@@ -189,7 +189,7 @@ void Tracker::setTLE(const String &newTLE)
     }
 }
 
-void Tracker::setEquatorial(float newRa, float newDec)
+void Tracker::setEquatorial(double newRa, double newDec)
 {
     if (xSemaphoreTake(positionMutex, portMAX_DELAY))
     {
@@ -200,7 +200,7 @@ void Tracker::setEquatorial(float newRa, float newDec)
     print_info("DEBUG : RADEC updated");
 }
 
-void Tracker::setGalactic(float newL, float newB)
+void Tracker::setGalactic(double newL, double newB)
 {
     if (xSemaphoreTake(positionMutex, portMAX_DELAY))
     {
@@ -211,26 +211,26 @@ void Tracker::setGalactic(float newL, float newB)
 }
 
 // Update the coordinates based on TLE data (satellite tracking)
-void Tracker::updateFromTLE(float &az, float &el)
+void Tracker::updateFromTLE(double &az, double &el)
 {
     // Perform TLE-based coordinate calculation (details omitted)
 }
 
 // Update the coordinates for galactic tracking
-void Tracker::updateFromGalactic(float &az, float &el)
+void Tracker::updateFromGalactic(double &az, double &el)
 {
     // Perform galactic-based coordinate calculation (details omitted)
 }
 
 // Validate if the coordinates are within valid range
-bool Tracker::isValidPosition(float az, float el)
+bool Tracker::isValidPosition(double az, double el)
 {
     // Check if azimuth and elevation are within valid bounds
     return (az >= AZ_MIN && az <= AZ_MAX && el >= EL_MIN && el <= EL_MAX);
 }
 
 // Check if movement is required
-bool Tracker::needsMovement(float az, float el)
+bool Tracker::needsMovement(double az, double el)
 {
     // You can add some logic to avoid unnecessary movements, for example:
     return (abs(targetAz - az) > MOTION_MIN || abs(targetEl - el) > MOTION_MIN);
